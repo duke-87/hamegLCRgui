@@ -17,6 +17,7 @@
 #    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys
+import imp
 import time
 from datetime import datetime
 import logging
@@ -27,10 +28,11 @@ from PyQt4.QtGui import *
 from PyQt4.QtCore import QObject, pyqtSlot, pyqtSignal
 from PyQt4.Qwt5 import *
 from PyQt4.Qt import QFileDialog, QRect
-import imp
 
 import hamegLCR
 from hamegLCRutil import *
+
+import numpy as np
 
 try:
     imp.find_module('openpyxl')
@@ -41,12 +43,9 @@ except ImportError:
 
 if foundPandas:
     import pandas
-    
-import numpy as np
-
 
 DEVICE = '/dev/ttyUSB0'
-#DEVICE = '/home/andrej/vmodem0
+#DEVICE = '/home/andrej/vmodem0'
 #DEVICE = 'COM27'
 
 class MainGUI(QWidget):
@@ -140,13 +139,16 @@ class MainGUI(QWidget):
 class MainTab(QtGui.QWidget):
     """*Home page* of the GUI."""
     
+    getValues_trigger = pyqtSignal()
+    
     def __init__(self):
         super(MainTab, self).__init__()
         
         self.logger = logging.getLogger(self.__class__.__name__)
         
-        #self.hameg = hamegLCR.HamegLCR(port='/home/andrej/vmodem0', timeout=5) #tty over socat
-        self.hameg = hamegLCR.HamegLCR(port=DEVICE)
+        self.hameg = hamegLCR.QHamegLCR(port=DEVICE, timeout=5)
+        self.getValues_trigger.connect(self.hameg.nonblockingGetValues)
+        self.hameg.values_signal.connect(self.newMeasurements_slot)
         
         self.sweepTimer = QTimer()
         self.sweepTimer.setSingleShot(True)
@@ -188,14 +190,17 @@ class MainTab(QtGui.QWidget):
         self.sliderValue.setDisabled(True)
         
         self.slider = QSlider(Qt.Horizontal)
-        self.slider.setRange(1000, 10000)
+        self.slider.valueChanged.connect(self.sliderValueChangeg_slot)
+        self.slider.setRange(0, 10000)
         self.slider.setTickInterval(1000)
         self.slider.setPageStep(100)
-        self.slider.valueChanged.connect(self.sliderValueChangeg_slot)
-        self.slider.setValue(5000)
-        self.slider.setToolTip(self.tr('Delay in milisecond between two measurements.'))
+        
+        self.slider.setValue(1)
+        self.slider.setValue(0)
+        self.slider.setToolTip(self.tr('Additional delay in milisecond between measurements.'))
         
         self.cb = QComboBox()
+        self.cb.setToolTip(self.tr('Measurement Mode'))
         self.cb.activated.connect(self.modeCombo_slot)
         for idx in hamegLCR.MODE:
             self.cb.addItem(idx)
@@ -204,10 +209,33 @@ class MainTab(QtGui.QWidget):
         self.cb.setCurrentIndex(mode)
         self.modeCombo_slot(mode)
         
+        self.trigCbox = QComboBox()
+        self.trigCbox.setToolTip(self.tr('Trigger Mode'))
+        self.trigCbox.activated.connect(self.trigModeCombo_slot)
+        for idx in hamegLCR.TRIGGER:
+            self.trigCbox.addItem(idx)
+        
+        mode = int(self.hameg.getTriggerMode())    
+        self.trigCbox.setCurrentIndex(mode)
+        self.trigModeCombo_slot(mode)
+        
+        self.rateCbox = QComboBox()
+        self.rateCbox.setToolTip(self.tr('Measurement Speed'))
+        self.rateCbox.activated.connect(self.rateCombo_slot)
+        for idx in hamegLCR.RATE:
+            self.rateCbox.addItem(idx)
+        
+        mode = int(self.hameg.getRate())    
+        self.rateCbox.setCurrentIndex(mode)
+        self.rateCombo_slot(mode)
+        
+        
         hbox = QHBoxLayout()
         hbox.addStretch(3)
         hbox.addWidget(self.slider,7)
         hbox.addWidget(self.sliderValue,1)
+        hbox.addWidget(self.rateCbox,1)
+        hbox.addWidget(self.trigCbox,1)
         hbox.addWidget(self.cb,1)
         hbox.addWidget(self.saveBtn)
         hbox.addWidget(self.startBtn,2)
@@ -224,11 +252,11 @@ class MainTab(QtGui.QWidget):
         selectedFilter = QString()
         
         if foundPandas:
-            filt = self.tr("Excel Open XML Document  .xlsx (*.xlsx);;Portable Network Graphics  .png (*.png)")
+            filt = self.tr("Excel Open XML Document (*.xlsx);;Portable Network Graphics (*.png)")
         else:
-            filt = self.tr("Portable Network Graphics  .png (*.png)")
-        
-        fileName = fdiag.getSaveFileName(self.parentWidget(), self.tr("Save Data As"),
+            filt = self.tr("Portable Network Graphics (*.png)")
+
+        fileName = fdiag.getSaveFileName(self, self.tr("Save Data As"),
                                         datetime.now().strftime('%Y-%m-%d-T%H%M%S-') + self.modeAscii,
                                         filt, selectedFilter)
         
@@ -273,6 +301,14 @@ class MainTab(QtGui.QWidget):
         self.modeUtf = hamegLCR.MODE[mode]
         self.modeIDX = mode
         
+    @pyqtSlot(int)
+    def trigModeCombo_slot(self, mode):
+        self.hameg.setTriggerMode(mode)
+    
+    @pyqtSlot(int)
+    def rateCombo_slot(self, mode):
+        self.hameg.setRate(mode)
+        
     @pyqtSlot()
     def sweepTimer_slot(self):
         
@@ -281,18 +317,31 @@ class MainTab(QtGui.QWidget):
         
         freq = hamegLCR.FREQ[self.sweepCnt]
         
+        if not self._sweepRead:
+            self.trigCbox.setCurrentIndex(1) #set manual mode
+            
         if self._sweepRead:
             self.graphGrp.setTitle(self.modeUtf + ' ' + self.tr('Measurements'))
             self.modeTuple = hamegLCR.MODE_TUPLE[self.modeIDX]
             
-            x1 = self.hameg.getMainValue()
-            self.plot1.setData(freq, x1)
+            self.getValues_trigger.emit()
+        
+        if self.sweepCnt == -1:
+            self.setNextFrequency()
             
-            x2 = self.hameg.getSecondaryValue()
-            self.plot2.setData(freq, x2)
-            
-            self.excelData.addMeasurement(freq, x1, x2)
-            
+    @pyqtSlot(float, float)
+    def newMeasurements_slot(self, x1, x2):
+        freq = hamegLCR.FREQ[self.sweepCnt]
+        
+        self.plot1.setData(freq, x1)
+        self.plot2.setData(freq, x2)
+        
+        self.excelData.addMeasurement(freq, x1, x2)
+        
+        self.setNextFrequency()
+    
+    def setNextFrequency(self):
+        freq = hamegLCR.FREQ[self.sweepCnt]
         
         self.sweepCnt += 1
         
@@ -310,16 +359,17 @@ class MainTab(QtGui.QWidget):
             self.startBtn.setText(self.tr('Start Sweep'))
             return
         
-        
         self.hameg.setFrequency(freq)
+        
+        if not self._sweepRead:
+            #dummy read, otherwise it happens, that old value is read 
+            self.hameg.triggerAndWait()
+            self.hameg.getMainValue()
         
         self._sweepRead = True    
         
         self.sweepTimer.start( self.slider.value())
-            
-            
-           
-        
+
     @pyqtSlot()
     def startSweep(self):
         

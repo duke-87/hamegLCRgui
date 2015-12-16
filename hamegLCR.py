@@ -18,8 +18,20 @@
 
 import time
 import serial
-
+import imp
 #import os
+
+try:
+    imp.find_module('PyQt4')
+    defQHamegLCR = True
+except ImportError:
+    defQHamegLCR = False
+
+
+if defQHamegLCR:
+    from PyQt4.QtCore import QObject, QThread, pyqtSlot
+    from PyQt4.Qt import pyqtSignal
+    import threading
 
 FREQ = [20, 24, 25, 30, 36, 40, 45, 50, 60, 72, 75, 80,
         90, 100, 120, 150, 180, 200, 240,  250, 300, 360, 400, 450,
@@ -34,6 +46,9 @@ MODE = ['AUTO', 'L-Q', 'L-R', 'C-D', 'C-R', 'R-Q', u'Z-\u03B8', u'Y+\u03B8', 'R+
 MODE_ASCII = ['AUTO', 'L-Q', 'L-R', 'C-D', 'C-R', 'R-Q', 'Z-Theta', 'Y-Theta', 'R+X', 'G+B', 'N-Theta', 'M']
 MODE_TUPLE = [['AUTO', 'AUTO'], ['L', 'Q'], ['L', 'R'], ['C', 'D'], ['C', 'R'], ['R', 'Q'], ['Z', 'Theta'], ['Y', 'Theta'], ['R', 'X'], ['G', 'B'], ['N', 'Theta'], ['M', 'xy']]
 
+TRIGGER = ['Continuous', 'Manual', 'External']
+
+RATE = ['Fast', 'Medium', 'Slow']
 class HamegLCR:
     """
         :param port: Serial port.
@@ -54,10 +69,10 @@ class HamegLCR:
         #apply new settings due
         #os.system('stty -F %s icrnl isig icanon iexten echo echoe echok echoctl echoke icrnl opost' % port)
         
-        tmp = self.get_id()
+        description = self.get_id()
         
-        if 'HAMEG' in tmp:
-            self.IDN = tmp
+        if 'HAMEG' in description:
+            self.IDN = description
         else:
             raise Exception('Not a HAMEG device')
         
@@ -101,11 +116,29 @@ class HamegLCR:
         self.write('PMOD?')
         return self.read()
     
+    def setTriggerMode(self, mode):
+        self.write('MMOD %s' % mode)
+    
+    def getTriggerMode(self):
+        self.write('MMOD?')
+        return self.read()
+    
+    def setRate(self, mode):
+        self.write('RATE %s' % mode)
+    
+    def getRate(self):
+        self.write('RATE?')
+        return self.read()
+    
     def setFrequency(self, freq):
         if freq not in FREQ:
             raise Exception('Invalid frequency')
         
         self.write('FREQ %s' % freq)
+        
+    def triggerAndWait(self): 
+        self.write('*TRG')
+        self.write('*WAI')
     
     def getMainValue(self):
         self.write('XMAJ?')
@@ -124,8 +157,50 @@ class HamegLCR:
             raise
         
         return x
-        
 
+if defQHamegLCR:
+    
+    class QHamegLCR(QObject, HamegLCR):
+        """ 
+            Extension of the HamegLCR class. It enables a number of
+            nonblocking functionalities by employing the Qt signal-slot
+            mechanism. Note that even though the object is self moved in 
+            its separate thread, direct calling of it methods does not execute
+            in this thread but in the thread from which the method was called.
+        """
+        values_signal = pyqtSignal(float, float)
+        
+        def __init__(self, *args, **kwargs):
+            self.__lock = threading.Lock()
+            
+            QObject.__init__(self)
+            HamegLCR.__init__(self, *args, **kwargs)
+            
+            self._thread = QThread()
+            self._thread.start()
+            
+            self.moveToThread(self._thread)
+       
+        @pyqtSlot()
+        def nonblockingGetValues(self):
+            self.triggerAndWait()
+                
+            x1 = self.getMainValue()
+            x2 = self.getSecondaryValue()
+            
+            self.values_signal.emit(x1, x2)
+            
+        def read(self):
+            self.__lock.acquire()
+            val = HamegLCR.read(self)
+            self.__lock.release()
+            return val
+        
+        def write(self, string):
+            self.__lock.acquire()
+            HamegLCR.write(self, string)
+            self.__lock.release()        
+    
 def main():
     
     PORT = '/dev/ttyUSB0'
@@ -140,7 +215,7 @@ def main():
         return
     
     print 'Connected to: %s' % hameg.IDN
-    print 'The bridge is in the %s mode.' % MODE[int(hameg.getMode())]
+    print 'The bridge is in the %s mode.' % MODE_ASCII[int(hameg.getMode())]
     print 'Main value: %s' % hameg.getMainValue()
     print 'Secondary value: %s' % hameg.getSecondaryValue()
     
