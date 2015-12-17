@@ -161,16 +161,19 @@ class MainTab(QtGui.QWidget):
         
     def initUI(self):
         """Generates the GUI."""
-        self.layout = QtGui.QVBoxLayout()
-        self.setLayout(self.layout)
+        self.lyt = QtGui.QVBoxLayout()
+        self.setLayout(self.lyt)
         
         # Create Alarm Group
         self.graphGrp = QGroupBox(self.tr('Measurements'))
         self.graphGrp_lyt = QVBoxLayout()
         self.graphGrp.setLayout(self.graphGrp_lyt)
         
-        self.plot1 = LCRPlot()
-        self.plot2 = LCRPlot()
+        self.plot1 = LCRPlot(xmin=hamegLCR.FREQ[0], xmax=hamegLCR.FREQ[-1]+hamegLCR.FREQ[-1]*0.01, logscale=True)
+        self.plot2 = LCRPlot(xmin=hamegLCR.FREQ[0], xmax=hamegLCR.FREQ[-1]+hamegLCR.FREQ[-1]*0.01, logscale=True)
+        
+        self.plot3 = LCRPlot()
+        self.plot4 = LCRPlot()
         
         self.graphGrp_lyt.addWidget(self.plot1)
         self.graphGrp_lyt.addWidget(self.plot2)
@@ -178,13 +181,18 @@ class MainTab(QtGui.QWidget):
         self.plot1.axisWidget(QwtPlot.yLeft).scaleDraw().setMinimumExtent(80)
         self.plot2.axisWidget(QwtPlot.yLeft).scaleDraw().setMinimumExtent(80)
         
-        self.layout.addWidget(self.graphGrp)
+        self.lyt.addWidget(self.graphGrp)
         
         self.startBtn = QPushButton(self.tr('Start Sweep'))
         self.startBtn.clicked.connect(self.startSweep)
         
         self.saveBtn = QPushButton(self.tr('Save to File'))
         self.saveBtn.clicked.connect(self.saveToFile)
+        
+                
+        self.testBtn = QtGui.QPushButton(self.tr('Test'))
+        self.testBtn.clicked.connect(self.test)
+        self.tt = True
         
         self.sliderValue = QLineEdit()
         self.sliderValue.setDisabled(True)
@@ -193,7 +201,9 @@ class MainTab(QtGui.QWidget):
         self.slider.valueChanged.connect(self.sliderValueChangeg_slot)
         self.slider.setRange(0, 10000)
         self.slider.setTickInterval(1000)
+        #self.slider.setTickPosition(QSlider.TicksBothSides)
         self.slider.setPageStep(100)
+        #self.slider.setSingleStep(50)
         
         self.slider.setValue(1)
         self.slider.setValue(0)
@@ -231,16 +241,34 @@ class MainTab(QtGui.QWidget):
         
         
         hbox = QHBoxLayout()
-        hbox.addStretch(3)
+        hbox.addStretch(1)
         hbox.addWidget(self.slider,7)
-        hbox.addWidget(self.sliderValue,1)
+        hbox.addWidget(self.sliderValue,2)
         hbox.addWidget(self.rateCbox,1)
         hbox.addWidget(self.trigCbox,1)
         hbox.addWidget(self.cb,1)
         hbox.addWidget(self.saveBtn)
         hbox.addWidget(self.startBtn,2)
-        self.layout.addLayout(hbox)
+        #hbox.addWidget(self.testBtn,2)
+        self.lyt.addLayout(hbox)
     
+    @pyqtSlot()
+    def test(self):
+        if self.tt:
+            #self.lyt.removeWidget(self.graphGrp)
+            print self.graphGrp_lyt.count()
+            self.graphGrp_lyt.removeWidget(self.plot1)
+            self.plot1.setParent(None)
+            self.graphGrp_lyt.removeWidget(self.plot2)
+            self.plot2.setParent(None)
+            print self.graphGrp_lyt.count()
+            
+        else:
+            self.graphGrp_lyt.addWidget(self.plot3)
+            self.graphGrp_lyt.addWidget(self.plot4)
+            
+        self.tt = not self.tt
+        
     @pyqtSlot()
     def sliderValueChangeg_slot(self):
         self.sliderValue.setText(str(self.slider.value()))
@@ -386,37 +414,9 @@ class MainTab(QtGui.QWidget):
         self.plot2.clearData()
         
         self.excelData = MeasurementData()
-        self.excelRowLabels = []
 
         self.sweepCnt = -1
         self.sweepTimer.start(10)
-
-class MeasurementData(object):
-    def __init__(self):
-        super(MeasurementData, self).__init__()
-        
-        self.__data = None
-    
-    def addMeasurement(self, *args):
-        if len(args) < 1:
-            raise Exception('Function requires at least one argument, none provided.')
-        
-        data = np.array(args)
-
-        if self.__data is None:
-            self.__data = data
-            return
-        
-        self.__data = np.vstack((self.__data, data))
-    
-    def getData(self):
-        if self.__data is None:
-            return np.array([])
-        
-        return self.__data
-            
-        
-        
 
 class FrequenciesTab(QtGui.QWidget):
     """Tab where the frequencies which are to be measured can be selected."""
@@ -429,14 +429,36 @@ class FrequenciesTab(QtGui.QWidget):
         
     def initUI(self):
         """Generates the GUI."""
-        self.layout = QtGui.QVBoxLayout()
-        self.setLayout(self.layout)
+        self.lyt = QtGui.QVBoxLayout()
+        self.setLayout(self.lyt)
+        
+        self.buttonFreq = QRadioButton(self.tr('Frequency Sweep'))
+        self.buttonFreq.setChecked(True)
+        self.buttonBias = QRadioButton(self.tr('Bias Sweep'))
+        
+        self.buttonExcGroup = QButtonGroup()
+        self.buttonExcGroup.setExclusive(True)
+        
+        self.buttonExcGroup.addButton(self.buttonFreq, 0)
+        self.buttonExcGroup.addButton(self.buttonBias, 1)
+        
+        self.selectGropu = QGroupBox(self.tr('Sweep Mode'))
+        self.selectGropuLyt = QVBoxLayout()
+        self.selectGropu.setLayout(self.selectGropuLyt)
+        
+        self.selectGropuLyt.addWidget(self.buttonFreq)
+        self.selectGropuLyt.addWidget(self.buttonBias)
+        
+        self.lyt.addWidget(self.selectGropu)
+        
+        self.buttonExcGroup.buttonClicked.connect(self.sweep_mode_slot)
+
         
         # Create Group
         self.freqGrp = QGroupBox(self.tr('Frequencies'))
         self.freqGrp_lyt = QVBoxLayout()
         self.freqGrp.setLayout(self.freqGrp_lyt)
-        self.layout.addWidget(self.freqGrp)
+        self.lyt.addWidget(self.freqGrp)
         
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -451,11 +473,18 @@ class FrequenciesTab(QtGui.QWidget):
         self.clearBtn.clicked.connect(self.clearAll)
         buttons.addWidget(self.clearBtn)
         
-        self.layout.addStretch()
+        self.lyt.addStretch()
         
         self.checkBoxes = FreqCheckBoxes()     
         self.freqGrp_lyt.addWidget(self.checkBoxes)
     
+    @pyqtSlot(QAbstractButton)
+    def sweep_mode_slot(self, button):
+        checked_id = self.buttonExcGroup.checkedId()
+        print 'Not implemented'
+        if checked_id == 0:
+            pass
+        
     @pyqtSlot()
     def clearAll(self):
         self._clearAll = not self._clearAll
@@ -472,131 +501,6 @@ class FrequenciesTab(QtGui.QWidget):
             else:
                 box.setChecked(False)
         
-        
-class LCRPlot(QwtPlot):
-    """
-    Class for plotting the measured data.
-    """
-    def __init__(self):
-        super(LCRPlot, self).__init__()
-        
-        self.colors = [Qt.darkCyan,Qt.darkGray,Qt.darkYellow]
-        self.setAxisScaleEngine(QwtPlot.xBottom,QwtLog10ScaleEngine())
-        #self.setAxisOptions(QwtPlot.xBottom, QwtAutoScale.Logarithmic)
-        self.setAxisScale(QwtPlot.xBottom, hamegLCR.FREQ[0], hamegLCR.FREQ[-1]+hamegLCR.FREQ[-1]*0.01)
-        self.ymax = 0
-        self.ymin = 0
-        
-        self.zoomer = QwtPlotZoomer(self.canvas())                 
-        self.zoomer.setRubberBandPen(QPen(Qt.black, 2, Qt.DotLine))
-        #self.zoomer.setTrackerPen(QPen(Qt.black));
-        
-    def clearData(self):
-        for pItem in self.itemList():
-          pItem.detach()
-        
-        self.ymax = -1000000000000
-        self.ymin = 1000000000000
-        
-        grid = QwtPlotGrid()
-        grid.enableXMin(True)
-        grid.enableYMin(True)
-        grid.setMajPen(QPen(Qt.black, 0, Qt.DotLine))
-        grid.setMinPen(QPen(Qt.gray, 0 , Qt.DotLine))
-        grid.attach(self)
-        
-        self.replot()
-     
-    def setData(self, x, y):
-        """Draws individual measurement on the graph."""
-        
-        m = QwtPlotMarker()
-        
-        m.setSymbol( QwtSymbol( QwtSymbol.Diamond, QBrush( Qt.red), QPen( Qt.green), QSize( 10, 10 ) ) )
-        m.setValue( QPointF( x,y ) )
-        m.attach( self )
-        
-        if y > self.ymax:
-            self.ymax = y
-            
-        if y < self.ymin:
-            self.ymin = y
-                
-        delta = (self.ymax -self.ymin)*0.02
-        if delta==0:
-            delta = 0.01*self.ymin
-        self.setAxisScale(QwtPlot.yLeft, self.ymin-delta, self.ymax+delta)
-
-        self.replot()
-        
-        #after reploting set new zoomer base (the new rectangle can bo only as big as current canvas
-        self.zoomer.setZoomBase(QRectF(hamegLCR.FREQ[0],  self.ymin-delta, hamegLCR.FREQ[-1]+hamegLCR.FREQ[-1]*0.01-hamegLCR.FREQ[0], self.ymax+delta - (self.ymin-delta)))
-    
-class Frequencies(object):
-    """Singletone object, which holds the list of frequencies that have been checked to measure.
-       If any instance of this class exist, the constructor returns its reference.
-    """ 
-    _instance = None
-    _initialized = False
-
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            cls._instance = super(Frequencies, cls).__new__(cls, *args, **kwargs)
-
-        return cls._instance
-    
-    def __init__(self):
-             
-        if not self._initialized:
-            super(Frequencies, self).__init__()
-            self._initialized = True
-            self.frequencies = {}
-            for freq in hamegLCR.FREQ:
-                self.frequencies[freq] = True
-            
-
-class FreqCheckBoxes(QWidget):
-    def __init__(self):
-        super(FreqCheckBoxes, self).__init__()
-        self.fdict = Frequencies()
-        self.initUI()      
-            
-    def initUI(self):
-        self.lyt = QHBoxLayout()
-        self.setLayout(self.lyt)
-        
-        self.boxes = []
-        idx = 0
-        for col in range(0,6):
-            vbox = QVBoxLayout()
-            self.lyt.addLayout(vbox)
-            while True:
-                #for line in range(0,12):
-                if idx > 68:
-                    vbox.addStretch()
-                    break
-                f = hamegLCR.FREQ[idx]
-                
-                if f >= 10**(col+1):
-                    vbox.addStretch()
-                    break
-                
-                cb = QCheckBox()
-                cb.setText(str(f))
-                cb.setChecked(self.fdict.frequencies[f])
-                cb.stateChanged.connect(self.checkBoxChanged)
-                vbox.addWidget(cb)
-                self.boxes.append(cb)
-                
-                idx += 1
-
-    @pyqtSlot(int)
-    def checkBoxChanged(self, state):
-        freq = int(self.sender().text())
-        self.fdict.frequencies[freq] = self.sender().isChecked()
-        #print freq
-        #print self.sender().isChecked()
-
 
 def main():
     #logging.basicConfig(filename='hamegLCRgui.log',level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

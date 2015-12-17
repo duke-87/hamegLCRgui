@@ -144,7 +144,6 @@ class HamegLCR:
         self.write('XMAJ?')
         return self._getFloat()
         
-    
     def getSecondaryValue(self):
         self.write('XMIN?')
         return self._getFloat()
@@ -154,7 +153,9 @@ class HamegLCR:
         try:
             x = float(x)
         except:
-            raise
+            #raise
+            x = 0 #TODO implement logging
+            print 'Could not convert to float...'#TODO implement logging
         
         return x
 

@@ -24,6 +24,8 @@ from PyQt4.Qwt5 import *
     
 import numpy as np
 
+import hamegLCR
+
 
 class MeasurementData(object):
     def __init__(self):
@@ -53,13 +55,22 @@ class LCRPlot(QwtPlot):
     """
     Class for plotting the measured data.
     """
-    def __init__(self):
+    def __init__(self, xmin=None, xmax=None, logscale=False):
         super(LCRPlot, self).__init__()
+        self.xmin = xmin
+        self.xmax = xmax
+        self.logscale = logscale
         
         self.colors = [Qt.darkCyan,Qt.darkGray,Qt.darkYellow]
-        self.setAxisScaleEngine(QwtPlot.xBottom,QwtLog10ScaleEngine())
+
+        if self.logscale:
+            self.setAxisScaleEngine(QwtPlot.xBottom,QwtLog10ScaleEngine())
         #self.setAxisOptions(QwtPlot.xBottom, QwtAutoScale.Logarithmic)
-        self.setAxisScale(QwtPlot.xBottom, hamegLCR.FREQ[0], hamegLCR.FREQ[-1]+hamegLCR.FREQ[-1]*0.01)
+        
+        #self.setAxisScale(QwtPlot.xBottom, hamegLCR.FREQ[0], hamegLCR.FREQ[-1]+hamegLCR.FREQ[-1]*0.01)
+        if (xmin is not None) and (xmax is not None):
+            self.setAxisScale(QwtPlot.xBottom, self.xmin, self.xmax)
+        
         self.ymax = 0
         self.ymin = 0
         
@@ -105,8 +116,10 @@ class LCRPlot(QwtPlot):
 
         self.replot()
         
-        #after reploting set new zoomer base (the new rectangle can bo only as big as current canvas
-        self.zoomer.setZoomBase(QRectF(hamegLCR.FREQ[0],  self.ymin-delta, hamegLCR.FREQ[-1]+hamegLCR.FREQ[-1]*0.01-hamegLCR.FREQ[0], self.ymax+delta - (self.ymin-delta)))
+        #after reploting set new zoomer base (the new rectangle can bo only as small as current canvas
+        if (self.xmin is not None) and (self.xmax is not None):
+            #self.zoomer.setZoomBase(QRectF(hamegLCR.FREQ[0],  self.ymin-delta, hamegLCR.FREQ[-1]+hamegLCR.FREQ[-1]*0.01-hamegLCR.FREQ[0], self.ymax+delta - (self.ymin-delta)))
+            self.zoomer.setZoomBase(QRectF(self.xmin,  self.ymin-delta, self.xmax-self.xmin, self.ymax+delta - (self.ymin-delta)))
     
 class Frequencies(object):
     """Singletone object, which holds the list of frequencies that have been checked to measure.
@@ -173,3 +186,70 @@ class FreqCheckBoxes(QWidget):
         #print freq
         #print self.sender().isChecked()
 
+
+class DoubleSlider(QWidget):
+    
+    def __init__(self):
+        super(DoubleSlider, self).__init__()
+        self.slider1 = QSlider(Qt.Horizontal)
+        #self.slider1.setInvertedAppearance(True)
+        #self.slider1.setInvertedControls(True)
+        self.slider2 = QSlider(Qt.Horizontal)
+
+        """        
+        self.setStyleSheet("\
+        QSlider::handle:horizontal {\
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #b4b4b4, stop:1 #ffffff);\
+        border: 1px solid #5c5c5c;\
+        width: 18px;\
+        color: red;\
+        margin: -2px 0;\
+        border-radius: 3px;\
+        }  \
+        QSlider::groove:horizontal {\
+        border: 1px solid #bbb;\
+        background: white;\
+        height: 10px;\
+        border-radius: 4px;\
+        }  \
+        QSlider::sub-page:horizontal {\
+        background: transparent\
+        border: 1px solid #777;\
+        height: 10px;\
+        border-radius: 4px;\
+        }\
+        ")
+        """     
+                
+        self.slider1.valueChanged.connect(self.slider1__changed_slot)
+        self.slider2.valueChanged.connect(self.slider1__changed_slot)
+        #self.slider1.setTracking(False)
+        #self.slider2.setTracking(False)
+        self.initUI()
+        
+    def initUI(self):
+        """Generates the GUI."""
+        self.lyt = QtGui.QHBoxLayout()
+        self.setLayout(self.lyt)
+        
+        self.lyt.addWidget(self.slider1)
+        self.lyt.addWidget(self.slider2)
+    
+    @pyqtSlot()
+    def slider1__changed_slot(self):
+        s1 = self.slider1.value()
+        s2 = self.slider2.value()
+        
+        if s1>s2:
+            if self.sender() == self.slider1:
+                self.slider2.setValue(s1)
+            else:
+                self.slider1.setValue(s2)
+    
+    @pyqtSlot()
+    def slider2__changed_slot(self):
+        s1 = self.slider1.value()
+        s2 = self.slider2.value()
+        
+        if s1>s2:
+            self.slider2.setValue(s1)
